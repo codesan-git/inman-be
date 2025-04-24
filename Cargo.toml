@@ -13,3 +13,5 @@ tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.8", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde", "clock"] }
 dotenv = "0.15"
+jsonwebtoken = "9.3.1"
+argon2 = "0.5.3"

@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use actix_web::web::Data;
 mod routes;
 use routes::user::{get_all_users, create_user, update_user, delete_user};
+use routes::auth::{check_user, login};
 
 // Models and user routes moved to routes/user.rs
 #[actix_web::main]
@@ -20,6 +21,8 @@ async fn main() -> std::io::Result<()> {
             .service(create_user)
             .service(update_user)
             .service(delete_user)
+            .service(check_user)
+            .service(login)
     })
     .bind(("127.0.0.1", 8080))?
     .run()

@@ -1,4 +1,5 @@
 use actix_web::{get, post, patch, delete, web, HttpResponse, Responder};
+use argon2::password_hash::rand_core;
 use sqlx::{PgPool, FromRow};
 use actix_web::web::Data;
 use serde::{Serialize, Deserialize};
@@ -36,6 +37,7 @@ pub struct UpdateUser {
     pub phone_number: Option<String>,
     pub avatar_url: Option<String>,
     pub role: Option<UserRole>,
+    pub password: Option<String>,
 }
 
 #[get("/api/users")]
@@ -101,8 +103,33 @@ pub async fn update_user(
     if let Some(role) = &update.role {
         sets.push(("role", FieldValue::Role(role)));
     }
+    let mut password_updated = false;
+    if let Some(new_password) = &update.password {
+        // hash password baru pakai argon2
+        use argon2::{Argon2, PasswordHasher};
+        use rand_core::OsRng;
+        let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
+        let argon2 = Argon2::default();
+        let password_hash = argon2.hash_password(new_password.as_bytes(), &salt).unwrap().to_string();
+        let res = sqlx::query!(
+            "UPDATE users SET password_hash = $1 WHERE id = $2",
+            password_hash,
+            id
+        )
+        .execute(db.get_ref())
+        .await;
+        match res {
+            Ok(_) => password_updated = true,
+            Err(e) => return HttpResponse::InternalServerError().body(format!("Gagal update password: {}", e)),
+        }
+    }
     if sets.is_empty() {
-        return HttpResponse::BadRequest().body("No fields to update");
+        // Jika hanya update password saja, anggap sukses
+        if password_updated {
+            return HttpResponse::Ok().json("Password berhasil diupdate!");
+        } else {
+            return HttpResponse::BadRequest().body("No fields to update");
+        }
     }
     let mut qb = QueryBuilder::new("UPDATE users SET ");
     for (i, (field, value)) in sets.iter().enumerate() {

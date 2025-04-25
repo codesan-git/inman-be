@@ -14,6 +14,15 @@ pub enum UserRole {
     Staff,
 }
 
+impl std::fmt::Display for UserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UserRole::Admin => write!(f, "admin"),
+            UserRole::Staff => write!(f, "staff"),
+        }
+    }
+}
+
 #[derive(Serialize, FromRow)]
 pub struct User {
     pub id: Uuid,
@@ -38,6 +47,7 @@ pub struct UpdateUser {
     pub avatar_url: Option<String>,
     pub role: Option<UserRole>,
     pub password: Option<String>,
+    pub from_login: Option<bool>,
 }
 
 #[get("/api/users")]
@@ -123,10 +133,18 @@ pub async fn update_user(
             Err(e) => return HttpResponse::InternalServerError().body(format!("Gagal update password: {}", e)),
         }
     }
+    let from_login = update.from_login.unwrap_or(false);
     if sets.is_empty() {
         // Jika hanya update password saja, anggap sukses
         if password_updated {
-            return HttpResponse::Ok().json("Password berhasil diupdate!");
+            if from_login {
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "redirect": true,
+                    "message": "Password berhasil dibuat, silakan login!"
+                }));
+            } else {
+                return HttpResponse::Ok().json("Password berhasil diupdate!");
+            }
         } else {
             return HttpResponse::BadRequest().body("No fields to update");
         }

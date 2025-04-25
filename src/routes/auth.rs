@@ -5,7 +5,7 @@ use chrono::{Utc, Duration};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-const SECRET: &[u8] = b"super_secret_key_change_me";
+// SECRET diambil dari env JWT_SECRET
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -78,10 +78,11 @@ pub async fn login(
                     sub: user.id.to_string(),
                     exp,
                 };
-                let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(SECRET)).unwrap();
+                let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET harus di-set di .env");
+                let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).unwrap();
                 let cookie = Cookie::build("token", token.clone())
                     .http_only(true)
-                    .secure(true) // aktifkan hanya di HTTPS production
+                    .secure(false) // HARUS false untuk dev HTTP agar cookie terkirim
                     .same_site(SameSite::Lax)
                     .path("/")
                     .finish();
@@ -95,7 +96,7 @@ pub async fn login(
             }
         }
     }
-    HttpResponse::Unauthorized().body("Username atau password salah")
+    HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Username atau password salah" }))
 }
 
 // Password verification menggunakan argon2

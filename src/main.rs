@@ -5,6 +5,7 @@ use actix_web::web::Data;
 mod routes;
 use routes::user::{get_all_users, create_user, update_user, delete_user};
 use routes::auth::{check_user, login};
+use routes::me::me;
 
 // Models and user routes moved to routes/user.rs
 #[actix_web::main]
@@ -16,15 +17,22 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(Data::new(db_pool.clone()))
-            .wrap(Cors::permissive())
+            .wrap(
+                Cors::default()
+                    .allowed_origin("http://localhost:5173")
+                    .allow_any_method()
+                    .allow_any_header()
+                    .supports_credentials()
+            )
             .service(get_all_users)
             .service(create_user)
             .service(update_user)
             .service(delete_user)
             .service(check_user)
             .service(login)
+            .service(me)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("localhost", 8080))?
     .run()
     .await
 }

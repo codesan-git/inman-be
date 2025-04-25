@@ -6,6 +6,7 @@ mod routes;
 use routes::user::{get_all_users, create_user, update_user, delete_user};
 use routes::auth::{check_user, login};
 use routes::me::me;
+use routes::items::config;
 
 // Models and user routes moved to routes/user.rs
 #[actix_web::main]
@@ -31,6 +32,7 @@ async fn main() -> std::io::Result<()> {
             .service(check_user)
             .service(login)
             .service(me)
+            .configure(config)
     })
     .bind(("localhost", 8080))?
     .run()

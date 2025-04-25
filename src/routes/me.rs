@@ -3,7 +3,6 @@ use crate::routes::auth::Claims;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::Serialize;
 use uuid::Uuid;
-// dotenv sudah dipanggil di main.rs, tidak perlu di sini
 use sqlx::PgPool;
 
 #[derive(Serialize)]

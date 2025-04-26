@@ -1,4 +1,4 @@
-use actix_web::{post, web, HttpResponse, Responder, cookie::{Cookie, SameSite}};
+use actix_web::{post, get, web, HttpResponse, Responder, cookie::{Cookie, SameSite}};
 use serde::{Deserialize, Serialize};
 use jsonwebtoken::{encode, Header, EncodingKey};
 use chrono::{Utc, Duration};
@@ -111,3 +111,18 @@ fn verify_password(password: &str, hash: &str) -> bool {
 }
 
 // Helper untuk middleware validasi JWT bisa dibuat menyusul
+
+#[get("/api/logout")]
+pub async fn logout() -> impl Responder {
+    let cookie = Cookie::build("token", "")
+        .http_only(true)
+        .secure(false)
+        .same_site(SameSite::Lax)
+        .path("/")
+        .max_age(actix_web::cookie::time::Duration::new(-1, 0)) // Expired cookie
+        .finish();
+    
+    HttpResponse::Ok()
+        .cookie(cookie)
+        .json(serde_json::json!({ "success": true, "message": "Logged out successfully" }))
+}

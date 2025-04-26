@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use actix_web::web::Data;
 mod routes;
 use routes::user::{get_all_users, create_user, update_user, delete_user};
-use routes::auth::{check_user, login};
+use routes::auth::{check_user, login, logout};
 use routes::me::me;
 use routes::items::config;
 
@@ -31,6 +31,7 @@ async fn main() -> std::io::Result<()> {
             .service(delete_user)
             .service(check_user)
             .service(login)
+            .service(logout)
             .service(me)
             .configure(config)
     })

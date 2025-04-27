@@ -1,16 +1,18 @@
-use actix_web::{get, post, patch, delete, web, HttpResponse, Responder};
+use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, HttpRequest};
 use argon2::password_hash::rand_core;
 use sqlx::{PgPool, FromRow};
 use actix_web::web::Data;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
+use actix_web::HttpMessage;
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+use crate::middleware::jwt_middleware::Claims;
+
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
 #[sqlx(type_name = "user_role")]
+#[sqlx(rename_all = "lowercase")]
 pub enum UserRole {
-    #[sqlx(rename = "admin")]
     Admin,
-    #[sqlx(rename = "staff")]
     Staff,
 }
 
@@ -50,8 +52,11 @@ pub struct UpdateUser {
     pub from_login: Option<bool>,
 }
 
-#[get("/api/users")]
-pub async fn get_all_users(db: Data<PgPool>) -> impl Responder {
+#[get("")]
+pub async fn get_all_users(db: Data<PgPool>, claims: Claims) -> impl Responder {
+    if claims.role != "admin" {
+        return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
+    }
     let users = sqlx::query_as::<_, User>(
         "SELECT id, name, email, phone_number, avatar_url, role, created_at FROM users"
     )
@@ -62,13 +67,16 @@ pub async fn get_all_users(db: Data<PgPool>) -> impl Responder {
         Ok(users) => HttpResponse::Ok().json(users),
         Err(e) => {
             eprintln!("DB error: {:?}", e);
-            HttpResponse::InternalServerError().body(format!("DB error: {:?}", e))
+            HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {:?}", e) }))
         }
     }
 }
 
-#[post("/api/users")]
-pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>) -> impl Responder {
+#[post("")]
+pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>, claims: Claims) -> impl Responder {
+    if claims.role != "admin" {
+        return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
+    }
     let result = sqlx::query!(
         "INSERT INTO users (name) VALUES ($1)",
         new_user.name
@@ -78,11 +86,11 @@ pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>) -> impl
 
     match result {
         Ok(_) => HttpResponse::Ok().json("User berhasil ditambahkan!"),
-        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {}", e) })),
     }
 }
 
-#[patch("/api/users/{id}")]
+#[patch("/{id}")]
 pub async fn update_user(
     db: Data<PgPool>,
     path: web::Path<Uuid>,
@@ -130,7 +138,7 @@ pub async fn update_user(
         .await;
         match res {
             Ok(_) => password_updated = true,
-            Err(e) => return HttpResponse::InternalServerError().body(format!("Gagal update password: {}", e)),
+            Err(e) => return HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {}", e) })),
         }
     }
     let from_login = update.from_login.unwrap_or(false);
@@ -143,10 +151,10 @@ pub async fn update_user(
                     "message": "Password berhasil dibuat, silakan login!"
                 }));
             } else {
-                return HttpResponse::Ok().json("Password berhasil diupdate!");
+                return HttpResponse::Ok().json(serde_json::json!({ "message": "Password berhasil diupdate!" }));
             }
         } else {
-            return HttpResponse::BadRequest().body("No fields to update");
+            return HttpResponse::BadRequest().json(serde_json::json!({ "message": "No fields to update" }));
         }
     }
     let mut qb = QueryBuilder::new("UPDATE users SET ");
@@ -169,19 +177,41 @@ pub async fn update_user(
     let result = query.execute(db.get_ref()).await;
     match result {
         Ok(_) => HttpResponse::Ok().json("User berhasil diupdate!"),
-        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {}", e) })),
     }
 }
 
 
-#[delete("/api/users/{id}")]
-pub async fn delete_user(db: Data<PgPool>, path: web::Path<Uuid>) -> impl Responder {
+#[delete("/{id}")]
+pub async fn delete_user(db: Data<PgPool>, path: web::Path<Uuid>, claims: Claims) -> impl Responder {
+    if claims.role != "admin" {
+        return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
+    }
     let id = path.into_inner();
     let result = sqlx::query!("DELETE FROM users WHERE id = $1", id)
         .execute(db.get_ref())
         .await;
     match result {
         Ok(_) => HttpResponse::Ok().json("User berhasil dihapus!"),
-        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {}", e) })),
     }
+}
+
+
+async fn protected_admin(claims: Claims) -> impl actix_web::Responder {
+    if claims.role != "admin" {
+        return actix_web::HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses endpoint ini" }));
+    }
+    actix_web::HttpResponse::Ok().body("Hello admin!")
+}
+
+pub fn user_config(cfg: &mut web::ServiceConfig) {
+    cfg
+        .service(get_all_users)
+        .service(create_user)
+        .service(update_user)
+        .service(delete_user)
+        .service(
+            actix_web::web::resource("/admin-only").route(actix_web::web::get().to(protected_admin))
+        );
 }

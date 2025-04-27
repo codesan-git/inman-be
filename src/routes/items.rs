@@ -56,8 +56,9 @@ pub enum ItemSource {
     Procurement,
 }
 
-#[get("/api/items")]
+#[get("")]
 pub async fn get_items(pool: web::Data<PgPool>) -> impl Responder {
+    println!("[Handler] get_items dipanggil");
     let items = sqlx::query_as::<_, Item>("SELECT * FROM items ORDER BY created_at DESC")
         .fetch_all(pool.get_ref())
         .await;
@@ -67,7 +68,7 @@ pub async fn get_items(pool: web::Data<PgPool>) -> impl Responder {
     }
 }
 
-#[get("/api/items/{id}")]
+#[get("/{id}")]
 pub async fn get_item_by_id(pool: web::Data<PgPool>, path: web::Path<String>) -> impl Responder {
     let id_str = path.into_inner();
     let id = match uuid::Uuid::parse_str(&id_str) {
@@ -102,7 +103,7 @@ pub struct NewItem {
     pub procurement_id: Option<Uuid>,
 }
 
-#[post("/api/items")]
+#[post("")]
 pub async fn create_item(pool: web::Data<PgPool>, form: web::Json<NewItem>) -> impl Responder {
     println!("DEBUG payload: {:?}", form);
 
@@ -140,7 +141,7 @@ pub struct UpdateItem {
     pub procurement_id: Option<Uuid>,
 }
 
-#[patch("/api/items/{id}")]
+#[patch("/{id}")]
 pub async fn update_item(
     pool: web::Data<PgPool>,
     path: web::Path<Uuid>,
@@ -179,7 +180,7 @@ pub async fn update_item(
     }
 }
 
-#[delete("/api/items/{id}")]
+#[delete("/{id}")]
 pub async fn delete_item(pool: web::Data<PgPool>, path: web::Path<Uuid>) -> impl Responder {
     let id = path.into_inner();
     let q = sqlx::query("DELETE FROM items WHERE id = $1 RETURNING id")
@@ -193,7 +194,7 @@ pub async fn delete_item(pool: web::Data<PgPool>, path: web::Path<Uuid>) -> impl
     }
 }
 
-pub fn config(cfg: &mut web::ServiceConfig) {
+pub fn items_config(cfg: &mut web::ServiceConfig) {
     cfg.service(get_items)
         .service(get_item_by_id)
         .service(create_item)

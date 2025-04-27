@@ -4,6 +4,7 @@ use jsonwebtoken::{encode, Header, EncodingKey};
 use chrono::{Utc, Duration};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::routes::user::UserRole;
 
 // SECRET diambil dari env JWT_SECRET
 
@@ -11,6 +12,15 @@ use uuid::Uuid;
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
+    pub role: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct UserRow {
+    id: Uuid,
+    name: String,
+    password_hash: Option<String>,
+    role: UserRole,
 }
 
 #[derive(Deserialize)]
@@ -29,10 +39,10 @@ pub async fn check_user(
     pool: web::Data<PgPool>,
     form: web::Json<CheckUserRequest>,
 ) -> impl Responder {
-    let user = sqlx::query!(
-        "SELECT id, name, password_hash FROM users WHERE name = $1",
-        form.name
+    let user = sqlx::query_as::<_, UserRow>(
+        "SELECT id, name, password_hash, role FROM users WHERE name = $1"
     )
+    .bind(&form.name)
     .fetch_optional(pool.get_ref())
     .await
     .unwrap();
@@ -55,6 +65,7 @@ pub struct LoginResponse {
     pub token: String,
     pub user_id: Uuid, 
     pub username: String,
+    pub role: String,
 }
 
 #[post("/api/login")]
@@ -62,10 +73,10 @@ pub async fn login(
     pool: web::Data<PgPool>,
     form: web::Json<LoginRequest>,
 ) -> impl Responder {
-    let user = sqlx::query!(
-        "SELECT id, name, password_hash FROM users WHERE name = $1",
-        form.name
+    let user = sqlx::query_as::<_, UserRow>(
+        "SELECT id, name, password_hash, role FROM users WHERE name = $1"
     )
+    .bind(&form.name)
     .fetch_optional(pool.get_ref())
     .await
     .unwrap();
@@ -77,9 +88,14 @@ pub async fn login(
                 let claims = Claims {
                     sub: user.id.to_string(),
                     exp,
+                    role: user.role.to_string(),
                 };
                 let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET harus di-set di .env");
-                let token = encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).unwrap();
+                let token = encode(
+                    &Header::default(),
+                    &claims,
+                    &EncodingKey::from_secret(secret.as_ref()),
+                ).expect("JWT encode error");
                 let cookie = Cookie::build("token", token.clone())
                     .http_only(true)
                     .secure(false) // HARUS false untuk dev HTTP agar cookie terkirim
@@ -92,6 +108,7 @@ pub async fn login(
                         token,
                         user_id: user.id,
                         username: user.name,
+                        role: user.role.to_string(),
                     });
             }
         }

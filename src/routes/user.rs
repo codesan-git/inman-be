@@ -1,12 +1,11 @@
-use actix_web::{get, post, patch, delete, web, HttpResponse, Responder, HttpRequest};
+use actix_web::{get, post, patch, delete, web, HttpResponse, Responder};
 use argon2::password_hash::rand_core;
 use sqlx::{PgPool, FromRow};
 use actix_web::web::Data;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use actix_web::HttpMessage;
 
-use crate::middleware::jwt_middleware::Claims;
+use crate::middleware::jwt_extractor::Claims;
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
 #[sqlx(type_name = "user_role")]

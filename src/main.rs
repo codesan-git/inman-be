@@ -1,4 +1,5 @@
 use actix_web::{App, HttpServer, middleware::Logger};
+
 use actix_cors::Cors;
 use sqlx::PgPool;
 use actix_web::web::Data;
@@ -8,7 +9,6 @@ use routes::user::user_config;
 use routes::auth::{check_user, login, logout};
 use routes::me::me;
 use routes::items::items_config;
-use middleware::jwt_middleware::JwtMiddleware;
 
 // Models and user routes moved to routes/user.rs
 #[actix_web::main]
@@ -29,6 +29,7 @@ async fn main() -> std::io::Result<()> {
                     .allow_any_header()
                     .supports_credentials()
             )
+            
             .service(check_user)
             .service(login)
             .service(logout)
@@ -39,7 +40,7 @@ async fn main() -> std::io::Result<()> {
             )
             .service(
                 actix_web::web::scope("/api/items")
-                                        .configure(items_config)
+                    .configure(items_config)
             )
             .service(
                 actix_web::web::scope("/api/me")

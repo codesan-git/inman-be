@@ -1,5 +1,5 @@
 use actix_web::{get, post, delete, web, HttpResponse, Responder, patch};
-use actix_web::HttpMessage;
+
 use crate::middleware::jwt_extractor::Claims;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -55,52 +55,17 @@ pub async fn get_all_item_logs(pool: web::Data<PgPool>) -> impl Responder {
 pub struct Item {
     pub id: Uuid,
     pub name: String,
-    pub category: Category,
+    pub category_id: Uuid,
     pub quantity: i32,
-    pub condition: Condition,
+    pub condition_id: Uuid,
     pub location_id: Option<Uuid>,
     pub photo_url: Option<String>,
-    pub source: ItemSource,
+    pub source_id: Uuid,
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "category")]
-#[serde(rename_all = "lowercase")]
-pub enum Category {
-    #[sqlx(rename = "electronics")]
-    Electronics,
-    #[sqlx(rename = "prayer")]
-    Prayer,
-    #[sqlx(rename = "furniture")]
-    Furniture,
-}
-
-#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "condition")]
-#[serde(rename_all = "lowercase")]
-pub enum Condition {
-    #[sqlx(rename = "good")]
-    Good,
-    #[sqlx(rename = "damaged")]
-    Damaged,
-    #[sqlx(rename = "lost")]
-    Lost,
-}
-
-#[derive(Debug, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "item_source")]
-#[serde(rename_all = "lowercase")]
-pub enum ItemSource {
-    #[sqlx(rename = "existing")]
-    Existing,
-    #[sqlx(rename = "donation")]
-    Donation,
-    #[sqlx(rename = "procurement")]
-    Procurement,
-}
 
 #[get("")]
 pub async fn get_items(pool: web::Data<PgPool>) -> impl Responder {
@@ -139,12 +104,12 @@ pub async fn get_item_by_id(pool: web::Data<PgPool>, path: web::Path<String>) ->
 #[derive(Debug, Deserialize)]
 pub struct NewItem {
     pub name: String,
-    pub category: Category,
+    pub category_id: Uuid,
     pub quantity: Option<i32>,
-    pub condition: Condition,
+    pub condition_id: Uuid,
     pub location_id: Option<Uuid>,
     pub photo_url: Option<String>,
-    pub source: ItemSource,
+    pub source_id: Uuid,
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
 }
@@ -154,16 +119,16 @@ pub async fn create_item(claims: Claims, pool: web::Data<PgPool>, form: web::Jso
     println!("DEBUG payload: {:?}", form);
 
     let q = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, category, quantity, condition, location_id, photo_url, source, donor_id, procurement_id) \
+        "INSERT INTO items (name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id) \
         VALUES ($1, $2, COALESCE($3, 1), $4, $5, $6, $7, $8, $9) RETURNING *"
     )
     .bind(&form.name)
-    .bind(&form.category)
+    .bind(&form.category_id)
     .bind(form.quantity)
-    .bind(&form.condition)
+    .bind(&form.condition_id)
     .bind(form.location_id)
     .bind(&form.photo_url)
-    .bind(&form.source)
+    .bind(&form.source_id)
     .bind(form.donor_id)
     .bind(form.procurement_id)
     .fetch_one(pool.get_ref())
@@ -187,12 +152,12 @@ pub async fn create_item(claims: Claims, pool: web::Data<PgPool>, form: web::Jso
 #[derive(Debug, Deserialize)]
 pub struct UpdateItem {
     pub name: Option<String>,
-    pub category: Option<Category>,
+    pub category_id: Option<Uuid>,
     pub quantity: Option<i32>,
-    pub condition: Option<Condition>,
+    pub condition_id: Option<Uuid>,
     pub location_id: Option<Uuid>,
     pub photo_url: Option<String>,
-    pub source: Option<ItemSource>,
+    pub source_id: Option<Uuid>,
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
 }
@@ -210,23 +175,23 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
     let q = sqlx::query_as::<_, Item>(
         "UPDATE items SET \
             name = COALESCE($1, name), \
-            category = COALESCE($2, category), \
+            category_id = COALESCE($2, category_id), \
             quantity = COALESCE($3, quantity), \
-            condition = COALESCE($4, condition), \
+            condition_id = COALESCE($4, condition_id), \
             location_id = COALESCE($5, location_id), \
             photo_url = COALESCE($6, photo_url), \
-            source = COALESCE($7, source), \
+            source_id = COALESCE($7, source_id), \
             donor_id = COALESCE($8, donor_id), \
             procurement_id = COALESCE($9, procurement_id) \
         WHERE id = $10 RETURNING *"
     )
     .bind(&form.name)
-    .bind(&form.category)
+    .bind(&form.category_id)
     .bind(form.quantity)
-    .bind(&form.condition)
+    .bind(&form.condition_id)
     .bind(form.location_id)
     .bind(&form.photo_url)
-    .bind(&form.source)
+    .bind(&form.source_id)
     .bind(form.donor_id)
     .bind(form.procurement_id)
     .bind(id)

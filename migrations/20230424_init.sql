@@ -1,34 +1,32 @@
--- Enums
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'category') THEN
-        CREATE TYPE category AS ENUM ('electronics', 'prayer', 'furniture');
-    END IF;
-END$$;
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'item_source') THEN
-        CREATE TYPE item_source AS ENUM ('existing', 'donation', 'procurement');
-    END IF;
-END$$;
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'condition') THEN
-        CREATE TYPE condition AS ENUM ('good', 'damaged', 'lost');
-    END IF;
-END$$;
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'procurement_status') THEN
-        CREATE TYPE procurement_status AS ENUM ('pending', 'approved', 'rejected', 'purchased');
-    END IF;
-END$$;
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
-        CREATE TYPE user_role AS ENUM ('admin', 'staff');
-    END IF;
-END$$;
+-- Dynamic tables for previously-enum values
+CREATE TABLE categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(64) NOT NULL UNIQUE
+);
+CREATE TABLE item_sources (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(64) NOT NULL UNIQUE
+);
+CREATE TABLE conditions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(32) NOT NULL UNIQUE
+);
+CREATE TABLE procurement_statuses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(32) NOT NULL UNIQUE
+);
+CREATE TABLE user_roles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(32) NOT NULL UNIQUE
+);
+
+-- Optionally, insert initial values for each table (uncomment if needed)
+INSERT INTO categories (name) VALUES ('electronics'), ('prayer'), ('furniture');
+INSERT INTO item_sources (name) VALUES ('existing'), ('donation'), ('procurement');
+INSERT INTO conditions (name) VALUES ('good'), ('damaged'), ('lost');
+INSERT INTO procurement_statuses (name) VALUES ('pending'), ('approved'), ('rejected'), ('purchased');
+INSERT INTO user_roles (name) VALUES ('admin'), ('staff');
+
 
 -- Table: locations
 CREATE TABLE locations (
@@ -45,7 +43,7 @@ CREATE TABLE users (
   name VARCHAR(64) NOT NULL UNIQUE,
   phone_number VARCHAR(16),
   avatar_url TEXT,
-  role user_role NOT NULL DEFAULT 'staff',
+  role_id UUID NOT NULL REFERENCES user_roles(id),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -55,9 +53,9 @@ CREATE TABLE donations (
   donor_name VARCHAR(64) NOT NULL,
   donor_email VARCHAR(128),
   item_name VARCHAR(128) NOT NULL,
-  category category NOT NULL,
+  category_id UUID NOT NULL REFERENCES categories(id),
   quantity INTEGER NOT NULL DEFAULT 1,
-  condition condition NOT NULL DEFAULT 'good',
+  condition_id UUID NOT NULL REFERENCES conditions(id),
   photo_url TEXT,
   status VARCHAR(16) NOT NULL DEFAULT 'pending',
   admin_note TEXT,
@@ -68,10 +66,10 @@ CREATE TABLE donations (
 CREATE TABLE procurements (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   item_name VARCHAR(128) NOT NULL,
-  category category NOT NULL,
+  category_id UUID NOT NULL REFERENCES categories(id),
   quantity INTEGER NOT NULL DEFAULT 1,
   reason TEXT,
-  status procurement_status NOT NULL DEFAULT 'pending',
+  status_id UUID NOT NULL REFERENCES procurement_statuses(id),
   requested_by UUID REFERENCES users(id),
   approved_by UUID REFERENCES users(id),
   admin_note TEXT,
@@ -83,12 +81,12 @@ CREATE TABLE procurements (
 CREATE TABLE items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(128) NOT NULL,
-  category category NOT NULL,
+  category_id UUID NOT NULL REFERENCES categories(id),
   quantity INTEGER NOT NULL DEFAULT 1,
-  condition condition NOT NULL DEFAULT 'good',
+  condition_id UUID NOT NULL REFERENCES conditions(id),
   location_id UUID REFERENCES locations(id) ON DELETE SET NULL,
   photo_url TEXT,
-  source item_source NOT NULL,
+  source_id UUID NOT NULL REFERENCES item_sources(id),
   donor_id UUID REFERENCES donations(id),
   procurement_id UUID REFERENCES procurements(id),
   created_at TIMESTAMPTZ DEFAULT now()

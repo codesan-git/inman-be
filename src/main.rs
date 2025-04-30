@@ -43,6 +43,10 @@ async fn main() -> std::io::Result<()> {
                     .configure(items_config)
             )
             .service(
+                actix_web::web::scope("/api/lookup")
+                    .configure(routes::lookup::lookup_config)
+            )
+            .service(
                 actix_web::web::scope("/api/me")
                                         .service(me)
             )

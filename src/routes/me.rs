@@ -1,5 +1,6 @@
 use actix_web::{get, HttpRequest, HttpResponse, Responder};
 use crate::routes::auth::Claims;
+
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::Serialize;
 use uuid::Uuid;
@@ -28,7 +29,7 @@ pub async fn me(req: HttpRequest, pool: actix_web::web::Data<PgPool>) -> impl Re
             Err(_) => return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Invalid user id in token" })),
         };
         // Query DB untuk ambil nama dan role
-        let row = sqlx::query_as::<_, crate::routes::user::User>("SELECT id, name, email, phone_number, avatar_url, role, created_at FROM users WHERE id = $1")
+        let row = sqlx::query_as::<_, crate::routes::user::User>("SELECT id, name, email, phone_number, avatar_url, role_id, created_at FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_one(pool.get_ref())
             .await;
@@ -36,7 +37,7 @@ pub async fn me(req: HttpRequest, pool: actix_web::web::Data<PgPool>) -> impl Re
             Ok(user) => HttpResponse::Ok().json(MeResponse {
                 id: user.id,
                 name: user.name,
-                role: user.role.to_string(),
+                role: user.role_id.to_string(),
             }),
             Err(_) => HttpResponse::Unauthorized().json(serde_json::json!({ "error": "User not found" })),
         }

@@ -4,7 +4,7 @@ use jsonwebtoken::{encode, Header, EncodingKey};
 use chrono::{Utc, Duration};
 use sqlx::PgPool;
 use uuid::Uuid;
-use crate::routes::user::UserRole;
+
 
 // SECRET diambil dari env JWT_SECRET
 
@@ -20,7 +20,7 @@ struct UserRow {
     id: Uuid,
     name: String,
     password_hash: Option<String>,
-    role: UserRole,
+    role_id: Uuid,
 }
 
 #[derive(Deserialize)]
@@ -40,7 +40,7 @@ pub async fn check_user(
     form: web::Json<CheckUserRequest>,
 ) -> impl Responder {
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id, name, password_hash, role FROM users WHERE name = $1"
+        "SELECT id, name, password_hash, role_id FROM users WHERE name = $1"
     )
     .bind(&form.name)
     .fetch_optional(pool.get_ref())
@@ -52,6 +52,7 @@ pub async fn check_user(
         return HttpResponse::Ok().json(serde_json::json!({
             "id": user.id,
             "name": user.name,
+            "role_id": user.role_id,
             "password_exists": password_exists
         }));
     } else {
@@ -74,7 +75,7 @@ pub async fn login(
     form: web::Json<LoginRequest>,
 ) -> impl Responder {
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id, name, password_hash, role FROM users WHERE name = $1"
+        "SELECT id, name, password_hash, role_id FROM users WHERE name = $1"
     )
     .bind(&form.name)
     .fetch_optional(pool.get_ref())
@@ -85,10 +86,11 @@ pub async fn login(
         if let Some(ref hash) = user.password_hash {
             if verify_password(&form.password, hash) {
                 let exp = (Utc::now() + Duration::hours(24)).timestamp() as usize;
+                // NOTE: role is now a UUID, so you may want to join to user_roles for label if needed
                 let claims = Claims {
                     sub: user.id.to_string(),
                     exp,
-                    role: user.role.to_string(),
+                    role: user.role_id.to_string(),
                 };
                 let secret = std::env::var("JWT_SECRET").expect("JWT_SECRET harus di-set di .env");
                 let token = encode(
@@ -108,7 +110,7 @@ pub async fn login(
                         token,
                         user_id: user.id,
                         username: user.name,
-                        role: user.role.to_string(),
+                        role: user.role_id.to_string(),
                     });
             }
         }

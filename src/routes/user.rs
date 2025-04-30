@@ -7,22 +7,7 @@ use uuid::Uuid;
 
 use crate::middleware::jwt_extractor::Claims;
 
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
-#[sqlx(type_name = "user_role")]
-#[sqlx(rename_all = "lowercase")]
-pub enum UserRole {
-    Admin,
-    Staff,
-}
-
-impl std::fmt::Display for UserRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UserRole::Admin => write!(f, "admin"),
-            UserRole::Staff => write!(f, "staff"),
-        }
-    }
-}
+use crate::middleware::admin_guard::is_admin;
 
 #[derive(Serialize, FromRow)]
 pub struct User {
@@ -31,13 +16,14 @@ pub struct User {
     pub email: Option<String>,
     pub phone_number: Option<String>,
     pub avatar_url: Option<String>,
-    pub role: UserRole,
+    pub role_id: Uuid,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Deserialize)]
 pub struct NewUser {
     pub name: String,
+    pub role_id: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -46,18 +32,18 @@ pub struct UpdateUser {
     pub email: Option<String>,
     pub phone_number: Option<String>,
     pub avatar_url: Option<String>,
-    pub role: Option<UserRole>,
+    pub role_id: Option<Uuid>,
     pub password: Option<String>,
     pub from_login: Option<bool>,
 }
 
 #[get("")]
-pub async fn get_all_users(db: Data<PgPool>, claims: Claims) -> impl Responder {
-    if claims.role != "admin" {
+pub async fn get_all_users(db: Data<PgPool>, claims: crate::middleware::jwt_extractor::Claims) -> impl Responder {
+    if !is_admin(&claims, db.get_ref()).await {
         return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
     }
     let users = sqlx::query_as::<_, User>(
-        "SELECT id, name, email, phone_number, avatar_url, role, created_at FROM users"
+        "SELECT id, name, email, phone_number, avatar_url, role_id, created_at FROM users"
     )
     .fetch_all(db.get_ref())
     .await;
@@ -72,21 +58,23 @@ pub async fn get_all_users(db: Data<PgPool>, claims: Claims) -> impl Responder {
 }
 
 #[post("")]
-pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>, claims: Claims) -> impl Responder {
-    if claims.role != "admin" {
+pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>, claims: crate::middleware::jwt_extractor::Claims) -> impl Responder {
+    if !is_admin(&claims, db.get_ref()).await {
         return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
     }
-    let result = sqlx::query!(
-        "INSERT INTO users (name) VALUES ($1)",
-        new_user.name
+    let role_id = new_user.role_id.unwrap_or_else(|| Uuid::parse_str("f27eecfb-897d-493a-aeb8-1bbce725f5c4").unwrap());
+let user = sqlx::query_as::<_, User>(
+    "INSERT INTO users (name, role_id) VALUES ($1, $2) RETURNING id, name, email, phone_number, avatar_url, role_id, created_at",
     )
-    .execute(db.get_ref())
+    .bind(&new_user.name)
+    .bind(role_id)
+    .fetch_one(db.get_ref())
     .await;
 
-    match result {
-        Ok(_) => HttpResponse::Ok().json("User berhasil ditambahkan!"),
-        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {}", e) })),
-    }
+match user {
+    Ok(user) => HttpResponse::Ok().json(user),
+    Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "message": format!("DB error: {}", e) })),
+}
 }
 
 #[patch("/{id}")]
@@ -102,7 +90,7 @@ pub async fn update_user(
         Email(&'a String),
         PhoneNumber(&'a String),
         AvatarUrl(&'a String),
-        Role(&'a UserRole),
+        RoleId(&'a Uuid),
     }
     let mut sets = Vec::new();
     if let Some(name) = &update.name {
@@ -117,8 +105,8 @@ pub async fn update_user(
     if let Some(avatar_url) = &update.avatar_url {
         sets.push(("avatar_url", FieldValue::AvatarUrl(avatar_url)));
     }
-    if let Some(role) = &update.role {
-        sets.push(("role", FieldValue::Role(role)));
+    if let Some(role_id) = &update.role_id {
+        sets.push(("role_id", FieldValue::RoleId(role_id)));
     }
     let mut password_updated = false;
     if let Some(new_password) = &update.password {
@@ -167,7 +155,7 @@ pub async fn update_user(
             FieldValue::Email(val) => { qb.push_bind(val); },
             FieldValue::PhoneNumber(val) => { qb.push_bind(val); },
             FieldValue::AvatarUrl(val) => { qb.push_bind(val); },
-            FieldValue::Role(val) => { qb.push_bind(val); },
+            FieldValue::RoleId(val) => { qb.push_bind(val); },
         }
     }
     qb.push(" WHERE id = ").push_bind(id);
@@ -182,8 +170,8 @@ pub async fn update_user(
 
 
 #[delete("/{id}")]
-pub async fn delete_user(db: Data<PgPool>, path: web::Path<Uuid>, claims: Claims) -> impl Responder {
-    if claims.role != "admin" {
+pub async fn delete_user(db: Data<PgPool>, path: web::Path<Uuid>, claims: crate::middleware::jwt_extractor::Claims) -> impl Responder {
+    if !is_admin(&claims, db.get_ref()).await {
         return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
     }
     let id = path.into_inner();
@@ -197,8 +185,8 @@ pub async fn delete_user(db: Data<PgPool>, path: web::Path<Uuid>, claims: Claims
 }
 
 
-async fn protected_admin(claims: Claims) -> impl actix_web::Responder {
-    if claims.role != "admin" {
+pub async fn protected_admin(db: Data<PgPool>, claims: crate::middleware::jwt_extractor::Claims) -> impl actix_web::Responder {
+    if !is_admin(&claims, db.get_ref()).await {
         return actix_web::HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses endpoint ini" }));
     }
     actix_web::HttpResponse::Ok().body("Hello admin!")

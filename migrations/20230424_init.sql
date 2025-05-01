@@ -21,6 +21,11 @@ CREATE TABLE user_roles (
 );
 
 -- Optionally, insert initial values for each table (uncomment if needed)
+-- Add description columns to all lookup tables for consistency
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE item_sources ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE conditions ADD COLUMN IF NOT EXISTS description TEXT;
+
 INSERT INTO categories (name) VALUES ('electronics'), ('prayer'), ('furniture');
 INSERT INTO item_sources (name) VALUES ('existing'), ('donation'), ('procurement');
 INSERT INTO conditions (name) VALUES ('good'), ('damaged'), ('lost');

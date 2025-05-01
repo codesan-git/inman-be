@@ -5,7 +5,7 @@ use actix_web::web::Data;
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-use crate::middleware::jwt_extractor::Claims;
+
 
 use crate::middleware::admin_guard::is_admin;
 

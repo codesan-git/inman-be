@@ -229,7 +229,7 @@ pub async fn delete_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
         .fetch_optional(pool.get_ref())
         .await;
     match q {
-        Ok(Some(row)) => {
+        Ok(Some(_row)) => {
             // Insert log
             if let Some(b) = before {
                 let _ = sqlx::query("INSERT INTO item_logs (item_id, action, before, after, by) VALUES ($1, $2, $3, $4, $5)")

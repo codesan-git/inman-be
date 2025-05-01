@@ -3,6 +3,7 @@ use futures::future::{ready, Ready};
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
+    #[allow(dead_code)]
     pub exp: usize,
     pub role: String,
 }

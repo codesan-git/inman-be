@@ -9,7 +9,6 @@ RUN cargo build --release
 
 # Copy source code
 COPY src ./src
-COPY migrations ./migrations
 RUN touch src/main.rs && \
     cargo build --release
 
@@ -21,7 +20,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/rustrest /usr/local/bin/
-COPY --from=builder /app/migrations /app/migrations
 
 ENV RUST_LOG=info
 ENV PORT=8080

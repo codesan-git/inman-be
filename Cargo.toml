@@ -17,3 +17,5 @@ chrono = { version = "0.4", features = ["serde", "clock"] }
 dotenv = "0.15"
 jsonwebtoken = "9.3.1"
 argon2 = "0.5.3"
+qrcode = "0.14.1"
+image = { version = "0.25.6", features = ["png"] }

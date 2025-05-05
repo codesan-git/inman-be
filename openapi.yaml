@@ -1,0 +1,160 @@
+openapi: 3.0.3
+info:
+  title: Actisol Inventory API
+  description: API dokumentasi untuk backend inventaris masjid.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/login:
+    post:
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Login berhasil
+        "401":
+          description: Username atau password salah
+  /api/me:
+    get:
+      summary: Info user dari token
+      responses:
+        "200":
+          description: Info user
+  /api/logout:
+    get:
+      summary: Logout user (hapus cookie)
+      responses:
+        "200":
+          description: Logout berhasil
+  /items:
+    get:
+      summary: Ambil semua item
+      responses:
+        "200":
+          description: List item
+    post:
+      summary: Tambah item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewItem"
+      responses:
+        "200":
+          description: Item berhasil ditambah
+  /items/{id}:
+    get:
+      summary: Ambil detail item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Detail item
+        "404":
+          description: Item tidak ditemukan
+    patch:
+      summary: Update item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateItem"
+      responses:
+        "200":
+          description: Item berhasil diupdate
+    delete:
+      summary: Hapus item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Item berhasil dihapus
+  /item_logs:
+    get:
+      summary: Ambil semua log item
+      responses:
+        "200":
+          description: List log item
+  /item_logs/{item_id}:
+    get:
+      summary: Ambil log untuk satu item
+      parameters:
+        - in: path
+          name: item_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List log item
+components:
+  schemas:
+    NewItem:
+      type: object
+      properties:
+        name:
+          type: string
+        category_id:
+          type: string
+        quantity:
+          type: integer
+        condition_id:
+          type: string
+        location_id:
+          type: string
+        photo_url:
+          type: string
+        source_id:
+          type: string
+        donor_id:
+          type: string
+        procurement_id:
+          type: string
+    UpdateItem:
+      type: object
+      properties:
+        name:
+          type: string
+        category_id:
+          type: string
+        quantity:
+          type: integer
+        condition_id:
+          type: string
+        location_id:
+          type: string
+        photo_url:
+          type: string
+        source_id:
+          type: string
+        donor_id:
+          type: string
+        procurement_id:
+          type: string

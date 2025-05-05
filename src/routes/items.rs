@@ -1,4 +1,10 @@
 use actix_web::{get, post, delete, web, HttpResponse, Responder, patch};
+use actix_web::http::header::ContentType;
+use qrcode::QrCode;
+use image::{Luma};
+use image::EncodableLayout;
+use image::ImageEncoder;
+use std::io::Cursor;
 
 use crate::middleware::jwt_extractor::Claims;
 use serde::{Deserialize, Serialize};
@@ -247,12 +253,47 @@ pub async fn delete_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
     }
 }
 
+#[get("/{id}/qrcode")]
+pub async fn get_item_qrcode(
+    path: web::Path<String>,
+    req: actix_web::HttpRequest
+) -> impl Responder {
+    let id_str = path.into_inner();
+    // URL detail item, ganti sesuai domain/frontend kamu
+    let url = format!("https://yourdomain.com/items/{}", id_str);
+    match QrCode::new(url) {
+        Ok(code) => {
+            let image = code.render::<Luma<u8>>().build();
+            let mut cursor = Cursor::new(Vec::new());
+            let encoder = image::codecs::png::PngEncoder::new(&mut cursor);
+            let encode_result = encoder.write_image(
+                image.as_bytes(),
+                image.width(),
+                image.height(),
+                image::ColorType::L8.into()
+            );
+            match encode_result {
+                Ok(_) => {
+                    let bytes = cursor.into_inner();
+                    HttpResponse::Ok()
+                        .content_type(ContentType::png())
+                        .body(bytes)
+                },
+                Err(e) => HttpResponse::InternalServerError().body(format!("QR encode error: {}", e)),
+            }
+        },
+        Err(e) => HttpResponse::InternalServerError().body(format!("QR gen error: {}", e)),
+    }
+}
+
 pub fn items_config(cfg: &mut web::ServiceConfig) {
-    cfg.service(get_items)
-    .service(get_all_item_logs)
-    .service(get_item_logs)
+    cfg
+        .service(get_items)
+        .service(get_all_item_logs)
+        .service(get_item_logs)
         .service(get_item_by_id)
         .service(create_item)
         .service(update_item)
-        .service(delete_item);
+        .service(delete_item)
+        .service(get_item_qrcode);
 }

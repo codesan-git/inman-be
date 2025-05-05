@@ -17,6 +17,10 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL harus di-set");
     let db_pool = PgPool::connect(&db_url).await.expect("Gagal connect ke database");
+    let port = std::env::var("PORT")
+    .ok()
+    .and_then(|p| p.parse().ok())
+    .unwrap_or(8080);
 
     HttpServer::new(move || {
         App::new()
@@ -51,7 +55,7 @@ async fn main() -> std::io::Result<()> {
                                         .service(me)
             )
     })
-    .bind(("localhost", 8080))?
+    .bind(("0.0.0.0", port))?    
     .run()
     .await
 }

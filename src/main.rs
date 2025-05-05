@@ -9,6 +9,7 @@ use routes::user::user_config;
 use routes::auth::{check_user, login, logout};
 use routes::me::me;
 use routes::items::items_config;
+use std::sync::Arc;
 
 // Models and user routes moved to routes/user.rs
 #[actix_web::main]
@@ -17,18 +18,29 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL harus di-set");
     let db_pool = PgPool::connect(&db_url).await.expect("Gagal connect ke database");
+    
     let port = std::env::var("PORT")
     .ok()
     .and_then(|p| p.parse().ok())
     .unwrap_or(8080);
 
+    let frontend_urls = Arc::new(vec![
+        std::env::var("FRONTEND_URL").expect("FRONTEND_URL harus di-set"),
+        "http://localhost:5173".to_string(),
+    ]);
+    
+    let cors_urls = frontend_urls.clone();
+
     HttpServer::new(move || {
+        let cors_urls = cors_urls.clone();
         App::new()
             .app_data(Data::new(db_pool.clone()))
             .wrap(Logger::default())
             .wrap(
                 Cors::default()
-                    .allowed_origin("http://localhost:5173")
+                .allowed_origin_fn(move |origin, _req_head| {
+                    cors_urls.iter().any(|url| origin.as_bytes() == url.as_bytes())
+                })
                     .allow_any_method()
                     .allow_any_header()
                     .supports_credentials()

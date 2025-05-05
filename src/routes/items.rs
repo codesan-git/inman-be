@@ -259,8 +259,9 @@ pub async fn get_item_qrcode(
     // req: actix_web::HttpRequest
 ) -> impl Responder {
     let id_str = path.into_inner();
-    // URL detail item, ganti sesuai domain/frontend kamu
-    let url = format!("https://yourdomain.com/items/{}", id_str);
+    // URL detail item, ambil dari env FRONTEND_URL
+    let frontend_url = std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
+    let url = format!("{}/items/{}", frontend_url.trim_end_matches('/'), id_str);
     match QrCode::new(url) {
         Ok(code) => {
             let image = code.render::<Luma<u8>>().build();

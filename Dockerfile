@@ -9,6 +9,7 @@ RUN cargo build --release
 
 # Copy source code
 COPY src ./src
+COPY .sqlx ./.sqlx
 RUN touch src/main.rs && \
     cargo build --release
 

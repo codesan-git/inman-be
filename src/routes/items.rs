@@ -1,7 +1,7 @@
 use actix_web::{get, post, delete, web, HttpResponse, Responder, patch};
 use actix_web::http::header::ContentType;
 use qrcode::QrCode;
-use image::{Luma};
+use image::Luma;
 use image::EncodableLayout;
 use image::ImageEncoder;
 use std::io::Cursor;
@@ -256,7 +256,7 @@ pub async fn delete_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
 #[get("/{id}/qrcode")]
 pub async fn get_item_qrcode(
     path: web::Path<String>,
-    req: actix_web::HttpRequest
+    // req: actix_web::HttpRequest
 ) -> impl Responder {
     let id_str = path.into_inner();
     // URL detail item, ganti sesuai domain/frontend kamu

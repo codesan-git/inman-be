@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: actix-inventory
+    runtime: docker
+    branch: main
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: RUST_LOG
+        value: info
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    startCommand: ""

@@ -13,7 +13,7 @@ COPY .sqlx ./.sqlx
 RUN touch src/main.rs && \
     cargo build --release
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     libssl-dev \

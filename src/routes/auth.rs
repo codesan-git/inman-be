@@ -100,8 +100,8 @@ pub async fn login(
                 ).expect("JWT encode error");
                 let cookie = Cookie::build("token", token.clone())
                     .http_only(true)
-                    .secure(false) // HARUS false untuk dev HTTP agar cookie terkirim
-                    .same_site(SameSite::Lax)
+                    .secure(true) // HARUS false untuk dev HTTP agar cookie terkirim
+                    .same_site(SameSite::None)
                     .path("/")
                     .finish();
                 return HttpResponse::Ok()
@@ -135,8 +135,8 @@ fn verify_password(password: &str, hash: &str) -> bool {
 pub async fn logout() -> impl Responder {
     let cookie = Cookie::build("token", "")
         .http_only(true)
-        .secure(false)
-        .same_site(SameSite::Lax)
+        .secure(true)
+        .same_site(SameSite::None)
         .path("/")
         .max_age(actix_web::cookie::time::Duration::new(-1, 0)) // Expired cookie
         .finish();

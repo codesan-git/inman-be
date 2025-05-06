@@ -62,9 +62,23 @@ pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>, claims:
     if !is_admin(&claims, db.get_ref()).await {
         return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Hanya admin yang boleh akses" }));
     }
-    let role_id = new_user.role_id.unwrap_or_else(|| Uuid::parse_str("f27eecfb-897d-493a-aeb8-1bbce725f5c4").unwrap());
-let user = sqlx::query_as::<_, User>(
-    "INSERT INTO users (name, role_id) VALUES ($1, $2) RETURNING id, name, email, phone_number, avatar_url, role_id, created_at",
+    // Ambil role_id: jika tidak dikirim, cari id dari table user_roles (atau roles) dengan value/name 'staff'
+    let role_id = if let Some(rid) = new_user.role_id {
+        rid
+    } else {
+        // Cek table user_roles, jika tidak ada fallback ke roles
+        let row = sqlx::query!("SELECT id FROM user_roles WHERE name = $1 LIMIT 1", "staff")
+            .fetch_optional(db.get_ref())
+            .await
+            .map_err(|e| HttpResponse::InternalServerError().json(serde_json::json!({"message": format!("DB error: {}", e)})))?;
+        if let Some(row) = row {
+            row.id
+        } else {
+            return HttpResponse::BadRequest().json(serde_json::json!({"message": "Role 'staff' tidak ditemukan di table user_roles"}));
+        }
+    };
+    let user = sqlx::query_as::<_, User>(
+        "INSERT INTO users (name, role_id) VALUES ($1, $2) RETURNING id, name, email, phone_number, avatar_url, role_id, created_at",
     )
     .bind(&new_user.name)
     .bind(role_id)

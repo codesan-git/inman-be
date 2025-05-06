@@ -67,10 +67,14 @@ pub async fn create_user(db: Data<PgPool>, new_user: web::Json<NewUser>, claims:
         rid
     } else {
         // Cek table user_roles, jika tidak ada fallback ke roles
-        let row = sqlx::query!("SELECT id FROM user_roles WHERE name = $1 LIMIT 1", "staff")
+        let row = match sqlx::query!("SELECT id FROM user_roles WHERE name = $1 LIMIT 1", "staff")
             .fetch_optional(db.get_ref())
-            .await
-            .map_err(|e| HttpResponse::InternalServerError().json(serde_json::json!({"message": format!("DB error: {}", e)})))?;
+            .await {
+            Ok(row) => row,
+            Err(e) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!({"message": format!("DB error: {}", e)}));
+            }
+        };
         if let Some(row) = row {
             row.id
         } else {

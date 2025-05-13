@@ -141,18 +141,53 @@ async fn get_access_token(client: &mut DriveClient) -> Result<String, Box<dyn st
     // Buat header JWT
     let header = Header::new(Algorithm::RS256);
     
-    // Buat private key dari string PEM
-    // Fix format private key dengan mengganti \n dengan newline yang sebenarnya
-    let fixed_private_key = client.credentials.private_key.replace("\\n", "\n");
+    // Gunakan fungsi utilitas untuk memperbaiki format private key
+    let fixed_private_key = fix_private_key_format(&client.credentials.private_key);
     
-    // Log untuk debugging
-    println!("[DEBUG] Private key format: {}", fixed_private_key.chars().take(50).collect::<String>());
+    // Log untuk debugging (hanya tampilkan sebagian untuk keamanan)
+    println!("[DEBUG] Private key format (first 50 chars): {}", fixed_private_key.chars().take(50).collect::<String>());
+    println!("[DEBUG] Private key format (last 50 chars): {}", fixed_private_key.chars().rev().take(50).collect::<String>());
     
+    // Coba beberapa format encoding key dengan fallback
     let private_key = match EncodingKey::from_rsa_pem(fixed_private_key.as_bytes()) {
-        Ok(key) => key,
+        Ok(key) => {
+            println!("[INFO] Berhasil menggunakan format PEM standar");
+            key
+        },
         Err(e) => {
-            println!("[ERROR] Gagal mendapatkan token: {}", e);
-            return Err(format!("InvalidKeyFormat: {}", e).into());
+            println!("[WARN] Format PEM standar gagal: {}", e);
+            
+            // Fallback 1: Coba format RSA private key
+            let raw_key = client.credentials.private_key.replace("\\n", "\n")
+                .replace("-----BEGIN PRIVATE KEY-----", "")
+                .replace("-----END PRIVATE KEY-----", "")
+                .replace("\n", "");
+                
+            let rsa_key = format!("-----BEGIN RSA PRIVATE KEY-----\n{}\n-----END RSA PRIVATE KEY-----", raw_key);
+            
+            match EncodingKey::from_rsa_pem(rsa_key.as_bytes()) {
+                Ok(key) => {
+                    println!("[INFO] Berhasil menggunakan format RSA PRIVATE KEY");
+                    key
+                },
+                Err(e2) => {
+                    println!("[WARN] Format RSA private key gagal: {}", e2);
+                    
+                    // Fallback 2: Coba dengan encoding PKCS8 dengan base64 decode
+                    let pkcs8_key = format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----", raw_key);
+                    match EncodingKey::from_rsa_pem(pkcs8_key.as_bytes()) {
+                        Ok(key) => {
+                            println!("[INFO] Berhasil menggunakan format PKCS8");
+                            key
+                        },
+                        Err(e3) => {
+                            // Fallback 3: Coba format lain jika semua gagal
+                            println!("[ERROR] Semua format private key gagal: {}, {}, {}", e, e2, e3);
+                            return Err(format!("InvalidKeyFormat: Tidak dapat memproses format private key").into());
+                        }
+                    }
+                }
+            }
         }
     };
     
@@ -569,6 +604,35 @@ async fn try_upload_to_google_drive(
             Err(e)
         }
     }
+}
+
+/// Fungsi utilitas untuk memperbaiki format private key
+fn fix_private_key_format(private_key: &str) -> String {
+    let mut fixed_key = private_key.to_string();
+    
+    // Ganti escaped newlines dengan newline sebenarnya
+    fixed_key = fixed_key.replace("\\n", "\n");
+    
+    // Pastikan format PEM yang benar
+    if !fixed_key.contains("-----BEGIN") {
+        // Jika tidak ada header PEM, tambahkan header dan footer
+        fixed_key = format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----", fixed_key);
+    }
+    
+    // Pastikan ada newline setelah header dan sebelum footer
+    for header in ["-----BEGIN PRIVATE KEY-----", "-----BEGIN RSA PRIVATE KEY-----"] {
+        if fixed_key.contains(header) && !fixed_key.contains(&format!("{}{}", header, "\n")) {
+            fixed_key = fixed_key.replace(header, &format!("{}{}", header, "\n"));
+        }
+    }
+    
+    for footer in ["-----END PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----"] {
+        if fixed_key.contains(footer) && !fixed_key.contains(&format!("{}{}", "\n", footer)) {
+            fixed_key = fixed_key.replace(footer, &format!("{}{}", "\n", footer));
+        }
+    }
+    
+    fixed_key
 }
 
 /// Mendapatkan URL publik untuk file Google Drive

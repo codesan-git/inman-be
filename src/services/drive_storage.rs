@@ -79,7 +79,19 @@ struct TokenResponse {
 /// Membuat Google Drive client
 pub async fn create_drive_client(config: &DriveConfig) -> Result<DriveClient, Box<dyn std::error::Error>> {
     // Parse credentials JSON
-    let credentials: GoogleCredentials = serde_json::from_str(&config.credentials_json)?;
+    let credentials_json = &config.credentials_json;
+    
+    // Log untuk debugging (hanya 50 karakter pertama untuk keamanan)
+    println!("[DEBUG] Credentials JSON format: {}", 
+             credentials_json.chars().take(50).collect::<String>());
+    
+    let credentials: GoogleCredentials = match serde_json::from_str(credentials_json) {
+        Ok(creds) => creds,
+        Err(e) => {
+            println!("[ERROR] Gagal parsing credentials JSON: {}", e);
+            return Err(format!("Failed to parse credentials JSON: {}", e).into());
+        }
+    };
     
     // Buat HTTP client
     let client = Client::builder()
@@ -130,7 +142,19 @@ async fn get_access_token(client: &mut DriveClient) -> Result<String, Box<dyn st
     let header = Header::new(Algorithm::RS256);
     
     // Buat private key dari string PEM
-    let private_key = EncodingKey::from_rsa_pem(client.credentials.private_key.as_bytes())?;
+    // Fix format private key dengan mengganti \n dengan newline yang sebenarnya
+    let fixed_private_key = client.credentials.private_key.replace("\\n", "\n");
+    
+    // Log untuk debugging
+    println!("[DEBUG] Private key format: {}", fixed_private_key.chars().take(50).collect::<String>());
+    
+    let private_key = match EncodingKey::from_rsa_pem(fixed_private_key.as_bytes()) {
+        Ok(key) => key,
+        Err(e) => {
+            println!("[ERROR] Gagal mendapatkan token: {}", e);
+            return Err(format!("InvalidKeyFormat: {}", e).into());
+        }
+    };
     
     // Encode JWT dengan jsonwebtoken
     let jwt = encode(&header, &claims, &private_key)?;
@@ -431,7 +455,7 @@ pub async fn upload_to_drive(
 // Fungsi upload_image telah dihapus karena tidak digunakan lagi
 // Digantikan oleh fungsi upload_file_handler dan upload_to_drive_or_local
 
-/// Fungsi untuk upload file ke Google Drive terlebih dahulu, kemudian fallback ke penyimpanan lokal jika gagal
+/// Fungsi untuk upload file ke Google Drive, mengembalikan error jika gagal tanpa fallback ke penyimpanan lokal
 pub async fn upload_to_drive_or_local(
     mut payload: Multipart,
     config: web::Data<DriveConfig>,
@@ -499,41 +523,14 @@ pub async fn upload_to_drive_or_local(
             Ok(drive_url) => {
                 println!("[INFO] upload_to_drive_or_local: Berhasil upload ke Google Drive: {}", drive_url);
                 
-                // Juga simpan file secara lokal sebagai backup (tidak menunggu hasil)
-                let filename_clone = unique_filename.clone();
-                let data_clone = data.clone();
-                let content_type_clone = content_type_opt.clone();
-                
-                // Spawn task terpisah untuk upload lokal
-                tokio::spawn(async move {
-                    match upload_local(&filename_clone, data_clone, content_type_clone).await {
-                        Ok(local_url) => {
-                            println!("[INFO] Background task: Berhasil upload lokal sebagai backup: {}", local_url);
-                        },
-                        Err(e) => {
-                            println!("[WARN] Background task: Gagal upload lokal sebagai backup: {}", e);
-                        }
-                    }
-                });
-                
                 // Kembalikan URL Google Drive yang sudah berhasil
                 return Ok(drive_url);
             },
             Err(e) => {
                 println!("[ERROR] upload_to_drive_or_local: Gagal upload ke Google Drive: {}", e);
                 
-                // Jika upload ke Google Drive gagal, coba upload ke penyimpanan lokal
-                println!("[INFO] upload_to_drive_or_local: Mencoba upload ke penyimpanan lokal sebagai fallback");
-                match upload_local(&unique_filename, data, content_type_opt).await {
-                    Ok(local_url) => {
-                        println!("[INFO] upload_to_drive_or_local: Berhasil upload lokal");
-                        return Ok(local_url);
-                    },
-                    Err(local_err) => {
-                        println!("[ERROR] upload_to_drive_or_local: Gagal upload lokal: {}", local_err);
-                        return Err(format!("Gagal upload file (baik ke Google Drive maupun lokal): Drive: {}, Lokal: {}", e, local_err).into());
-                    }
-                }
+                // Kembalikan error tanpa fallback ke penyimpanan lokal
+                return Err(format!("Gagal upload file ke Google Drive: {}", e).into());
             }
         }
     }

@@ -11,7 +11,7 @@ use routes::auth::{check_user, login, logout};
 use routes::me::me;
 use routes::items::items_config;
 use routes::upload::upload_config;
-use services::drive_storage::{DriveConfig, create_drive_client, ensure_folder_exists};
+use services::drive_storage::{DriveConfig, DriveClient, GoogleCredentials, create_drive_client, ensure_folder_exists};
 use std::sync::Arc;
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -85,9 +85,32 @@ async fn main() -> std::io::Result<()> {
             eprintln!("Upload akan fallback ke penyimpanan lokal jika Google Drive tidak tersedia.");
             
             // Buat dummy client kosong untuk fallback
-            match create_drive_client(&DriveConfig::default()).await {
+            match create_drive_client(&DriveConfig {
+                credentials_json: "{}".to_string(),
+                ..DriveConfig::default()
+            }).await {
                 Ok(client) => client,
-                Err(_) => panic!("Gagal membuat dummy client untuk Google Drive")
+                Err(e) => {
+                    eprintln!("Warning: Gagal membuat dummy client untuk Google Drive: {}", e);
+                    // Buat client dengan credentials kosong tanpa parsing JSON
+                    DriveClient {
+                        client: reqwest::Client::new(),
+                        credentials: GoogleCredentials {
+                            r#type: "".to_string(),
+                            project_id: "".to_string(),
+                            private_key_id: "".to_string(),
+                            private_key: "".to_string(),
+                            client_email: "".to_string(),
+                            client_id: "".to_string(),
+                            auth_uri: "".to_string(),
+                            token_uri: "".to_string(),
+                            auth_provider_x509_cert_url: "".to_string(),
+                            client_x509_cert_url: "".to_string(),
+                        },
+                        access_token: None,
+                        token_expiry: None,
+                    }
+                }
             }
         }
     };

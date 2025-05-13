@@ -637,8 +637,29 @@ fn fix_private_key_format(private_key: &str) -> String {
 
 /// Mendapatkan URL publik untuk file Google Drive
 pub fn get_public_url(config: &DriveConfig, file_id: &str) -> String {
-    // Menggunakan endpoint proxy di backend dengan URL lengkap dari konfigurasi
-    format!("{}/api/upload/proxy/drive/{}", config.base_url, file_id)
+    // Deteksi environment: jika BASE_URL adalah localhost tapi kita di production, gunakan URL production
+    let base_url = if config.base_url.contains("localhost") {
+        // Cek jika ada environment variable untuk production URL
+        match std::env::var("PRODUCTION_URL") {
+            Ok(url) if !url.is_empty() => url,
+            _ => {
+                // Jika tidak ada PRODUCTION_URL, gunakan render.com URL jika kita di render
+                if std::env::var("RENDER").is_ok() {
+                    "https://inman-be.onrender.com".to_string()
+                } else {
+                    config.base_url.clone()
+                }
+            }
+        }
+    } else {
+        config.base_url.clone()
+    };
+    
+    // Log URL yang digunakan
+    println!("[INFO] Menggunakan base URL: {}", base_url);
+    
+    // Menggunakan endpoint proxy di backend dengan URL yang sudah dikoreksi
+    format!("{}/api/upload/proxy/drive/{}", base_url, file_id)
 }
 
 /// Upload file ke penyimpanan lokal (fallback)

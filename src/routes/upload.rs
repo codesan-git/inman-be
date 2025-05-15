@@ -1,10 +1,13 @@
-use actix_web::{post, get, web, Responder, HttpResponse, Error, HttpRequest};
+use actix_web::{post, get, patch, web, Responder, HttpResponse, Error, HttpRequest};
 use crate::middleware::jwt_extractor::Claims;
-use crate::services::drive_storage::{upload_file_handler, DriveConfig, DriveClient};
+use crate::services::drive_storage::{upload_file_handler, upload_file_with_item_id, DriveConfig, DriveClient};
 use actix_multipart::Multipart;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use reqwest::Client;
+use sqlx::PgPool;
+use uuid::Uuid;
+use crate::routes::items::{UpdateItem, Item};
 
 #[post("")]
 pub async fn upload_image(
@@ -123,7 +126,60 @@ pub async fn proxy_drive_file(path: web::Path<String>) -> Result<HttpResponse, E
         }
 }
 
+#[patch("/{id}/upload-image")]
+pub async fn upload_item_image(
+    _claims: Claims, // Tambahkan underscore untuk menandakan variabel yang sengaja tidak digunakan
+    pool: web::Data<PgPool>,
+    path: web::Path<Uuid>,
+    payload: Multipart,
+    config: web::Data<DriveConfig>,
+    client: web::Data<Arc<Mutex<DriveClient>>>,
+) -> impl Responder {
+    let item_id = path.into_inner();
+    println!("[INFO] upload_item_image: Uploading image for item ID: {}", item_id);
+    
+    // Gunakan fungsi upload_file_with_item_id yang menerima item_id
+    match upload_file_with_item_id(payload, config, client, item_id).await {
+        Ok(file_url) => {
+            // file_url adalah String URL langsung, bukan JSON
+            let photo_url = file_url;
+            
+            // Update item photo_url in DB
+            let update = UpdateItem {
+                name: None,
+                category_id: None,
+                quantity: None,
+                condition_id: None,
+                location_id: None,
+                photo_url: Some(photo_url),
+                source_id: None,
+                donor_id: None,
+                procurement_id: None,
+                status_id: None,
+            };
+            
+            let updated_item = sqlx::query_as::<_, Item>(
+                "UPDATE items SET photo_url = $1 WHERE id = $2 RETURNING *"
+            )
+            .bind(&update.photo_url)
+            .bind(item_id)
+            .fetch_optional(pool.get_ref())
+            .await;
+            
+            match updated_item {
+                Ok(Some(item)) => HttpResponse::Ok().json(item),
+                Ok(None) => HttpResponse::NotFound().json(serde_json::json!({"error": "Item not found"})),
+                Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})),
+            }
+        },
+        Err(e) => {
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Upload failed: {}", e)}))
+        }
+    }
+}
+
 pub fn upload_config(cfg: &mut web::ServiceConfig) {
     cfg.service(upload_image);
     cfg.service(proxy_drive_file);
+    cfg.service(upload_item_image);
 }

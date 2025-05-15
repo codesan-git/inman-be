@@ -487,6 +487,93 @@ pub fn locations_config(cfg: &mut web::ServiceConfig) {
         .service(delete_location);
 }
 
+// ----------------- ItemStatuses -----------------
+#[derive(Serialize, Deserialize, sqlx::FromRow)]
+pub struct ItemStatus {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ItemStatusPayload {
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+#[get("")]
+pub async fn get_item_statuses(_claims: crate::middleware::jwt_extractor::Claims, pool: web::Data<PgPool>) -> impl Responder {
+    let rows = sqlx::query_as::<_, ItemStatus>("SELECT id, name, description, color FROM item_statuses ORDER BY name")
+        .fetch_all(pool.get_ref())
+        .await;
+    match rows {
+        Ok(rows) => HttpResponse::Ok().json(rows),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+#[post("")]
+pub async fn create_item_status(claims: crate::middleware::jwt_extractor::Claims, pool: web::Data<PgPool>, form: web::Json<ItemStatusPayload>) -> impl Responder {
+    if !is_admin(&claims, pool.get_ref()).await {
+        return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Admin only" }));
+    }
+    let row = sqlx::query_as::<_, ItemStatus>("INSERT INTO item_statuses (name, description, color) VALUES ($1, $2, $3) RETURNING id, name, description, color")
+        .bind(&form.name)
+        .bind(&form.description)
+        .bind(&form.color)
+        .fetch_one(pool.get_ref())
+        .await;
+    match row {
+        Ok(row) => HttpResponse::Ok().json(row),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+#[patch("/{id}")]
+pub async fn update_item_status(claims: crate::middleware::jwt_extractor::Claims, pool: web::Data<PgPool>, path: web::Path<Uuid>, form: web::Json<ItemStatusPayload>) -> impl Responder {
+    if !is_admin(&claims, pool.get_ref()).await {
+        return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Admin only" }));
+    }
+    let id = path.into_inner();
+    let row = sqlx::query_as::<_, ItemStatus>("UPDATE item_statuses SET name = $1, description = $2, color = $3 WHERE id = $4 RETURNING id, name, description, color")
+        .bind(&form.name)
+        .bind(&form.description)
+        .bind(&form.color)
+        .bind(id)
+        .fetch_one(pool.get_ref())
+        .await;
+    match row {
+        Ok(row) => HttpResponse::Ok().json(row),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+#[delete("/{id}")]
+pub async fn delete_item_status(claims: crate::middleware::jwt_extractor::Claims, pool: web::Data<PgPool>, path: web::Path<Uuid>) -> impl Responder {
+    if !is_admin(&claims, pool.get_ref()).await {
+        return HttpResponse::Forbidden().json(serde_json::json!({ "message": "Admin only" }));
+    }
+    let id = path.into_inner();
+    let row = sqlx::query("DELETE FROM item_statuses WHERE id = $1 RETURNING id")
+        .bind(id)
+        .fetch_optional(pool.get_ref())
+        .await;
+    match row {
+        Ok(Some(_)) => HttpResponse::Ok().json(serde_json::json!({"success": true})),
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({"error": "Not found"})),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({"error": e.to_string()})),
+    }
+}
+
+pub fn item_statuses_config(cfg: &mut web::ServiceConfig) {
+    cfg.service(get_item_statuses)
+        .service(create_item_status)
+        .service(update_item_status)
+        .service(delete_item_status);
+}
+
 // -------- Register all configs --------
 pub fn lookup_config(cfg: &mut web::ServiceConfig) {
     use actix_web::web::scope;
@@ -496,6 +583,7 @@ pub fn lookup_config(cfg: &mut web::ServiceConfig) {
     cfg.service(scope("/conditions").configure(conditions_config));
     cfg.service(scope("/procurement_statuses").configure(procurement_statuses_config));
     cfg.service(scope("/user_roles").configure(user_roles_config));
+    cfg.service(scope("/item_statuses").configure(item_statuses_config));
 }
 
 

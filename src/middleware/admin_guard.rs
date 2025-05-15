@@ -1,8 +1,16 @@
 use crate::middleware::jwt_extractor::Claims;
+use crate::middleware::permission_guard::has_permission;
 use sqlx::PgPool;
 use sqlx::Row;
 
+/// Check if a user has admin role
 pub async fn is_admin(claims: &Claims, pool: &PgPool) -> bool {
+    // First try to check using the new permissions system
+    if has_permission(claims, pool, "admin_access").await {
+        return true;
+    }
+    
+    // Fallback to the old role-based check for backward compatibility
     let user_id = match uuid::Uuid::parse_str(&claims.sub) {
         Ok(id) => id,
         Err(_) => {
@@ -28,6 +36,5 @@ pub async fn is_admin(claims: &Claims, pool: &PgPool) -> bool {
             return false;
         }
     };
-    let result = user_role_id == admin_role_id;
-    result
+    user_role_id == admin_role_id
 }

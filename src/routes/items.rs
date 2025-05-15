@@ -69,6 +69,7 @@ pub struct Item {
     pub source_id: Uuid,
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
+    pub status_id: Uuid,
     pub created_at: DateTime<Utc>,
 }
 
@@ -118,25 +119,51 @@ pub struct NewItem {
     pub source_id: Uuid,
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
+    pub status_id: Option<Uuid>,
 }
 
 #[post("")]
 pub async fn create_item(claims: Claims, pool: web::Data<PgPool>, form: web::Json<NewItem>) -> impl Responder {
     println!("DEBUG payload: {:?}", form);
 
+    let id = uuid::Uuid::new_v4();
+    
+    // Get default status if not provided (assuming 'available' is the default status)
+    let status_id = match form.status_id {
+        Some(id) => id,
+        None => {
+            // Try to get the default status
+            let default_status = sqlx::query!("SELECT id FROM item_statuses WHERE name = 'active' LIMIT 1")
+                .fetch_optional(pool.get_ref())
+                .await;
+            
+            match default_status {
+                Ok(Some(status)) => status.id,
+                _ => {
+                    // If the item_statuses table doesn't exist yet or no 'available' status,
+                    // create a default UUID to use temporarily
+                    // This will be replaced when the migration is applied
+                    uuid::Uuid::new_v4()
+                }
+            }
+        }
+    };
+    
     let q = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id) \
-        VALUES ($1, $2, COALESCE($3, 1), $4, $5, $6, $7, $8, $9) RETURNING *"
+        "INSERT INTO items (id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *"
     )
+    .bind(id)
     .bind(&form.name)
     .bind(&form.category_id)
-    .bind(form.quantity)
+    .bind(form.quantity.unwrap_or(1))
     .bind(&form.condition_id)
     .bind(form.location_id)
     .bind(&form.photo_url)
     .bind(&form.source_id)
     .bind(form.donor_id)
     .bind(form.procurement_id)
+    .bind(status_id)
+    .bind(chrono::Utc::now())
     .fetch_one(pool.get_ref())
     .await;
     match q {
@@ -166,6 +193,7 @@ pub struct UpdateItem {
     pub source_id: Option<Uuid>,
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
+    pub status_id: Option<Uuid>,
 }
 
 #[patch("/{id}")]
@@ -178,21 +206,9 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
         .await
         .ok()
         .flatten();
-    let q = sqlx::query_as::<_, Item>(
-        "UPDATE items SET \
-            name = COALESCE($1, name), \
-            category_id = COALESCE($2, category_id), \
-            quantity = COALESCE($3, quantity), \
-            condition_id = COALESCE($4, condition_id), \
-            location_id = COALESCE($5, location_id), \
-            photo_url = COALESCE($6, photo_url), \
-            source_id = COALESCE($7, source_id), \
-            donor_id = COALESCE($8, donor_id), \
-            procurement_id = COALESCE($9, procurement_id) \
-        WHERE id = $10 RETURNING *"
-    )
-    .bind(&form.name)
-    .bind(&form.category_id)
+    let q = sqlx::query_as::<_, Item>("UPDATE items SET name = COALESCE($1, name), category_id = COALESCE($2, category_id), quantity = COALESCE($3, quantity), condition_id = COALESCE($4, condition_id), location_id = $5, photo_url = $6, source_id = COALESCE($7, source_id), donor_id = $8, procurement_id = $9, status_id = COALESCE($10, status_id) WHERE id = $11 RETURNING *")
+    .bind(form.name.clone())
+    .bind(form.category_id)
     .bind(form.quantity)
     .bind(&form.condition_id)
     .bind(form.location_id)
@@ -200,6 +216,7 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
     .bind(&form.source_id)
     .bind(form.donor_id)
     .bind(form.procurement_id)
+    .bind(form.status_id)
     .bind(id)
     .fetch_optional(pool.get_ref())
     .await;

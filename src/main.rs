@@ -11,6 +11,8 @@ use routes::auth::{check_user, login, logout};
 use routes::me::me;
 use routes::items::items_config;
 use routes::upload::upload_config;
+use routes::permissions::permissions_config;
+use routes::borrowings::borrowings_config;
 use services::drive_storage::{DriveConfig, DriveClient, GoogleCredentials, create_drive_client, ensure_folder_exists};
 use std::sync::Arc;
 use std::path::Path;
@@ -172,6 +174,14 @@ async fn main() -> std::io::Result<()> {
             .service(
                 actix_web::web::scope("/api/upload")
                     .configure(upload_config)
+            )
+            .service(
+                actix_web::web::scope("/api/permissions")
+                    .configure(permissions_config)
+            )
+            .service(
+                actix_web::web::scope("/api/borrowings")
+                    .configure(borrowings_config)
             )
     })
     .bind(("0.0.0.0", port))?    

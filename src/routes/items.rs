@@ -30,7 +30,14 @@ pub struct ItemLog {
 #[get("/item_logs/{item_id}")]
 pub async fn get_item_logs(pool: web::Data<PgPool>, path: web::Path<Uuid>) -> impl Responder {
     let item_id = path.into_inner();
-    let logs = sqlx::query_as::<_, ItemLog>("SELECT * FROM item_logs WHERE item_id = $1 ORDER BY created_at DESC")
+    let logs = sqlx::query_as::<_, ItemLog>(
+        r#"SELECT l.id, l.item_id, i.name as item_name, l.action, l.before, l.after, l.note, l.by, u.name as user_name, l.created_at
+        FROM item_logs l
+        LEFT JOIN items i ON l.item_id = i.id
+        LEFT JOIN users u ON l.by = u.id
+        WHERE l.item_id = $1
+        ORDER BY l.created_at DESC"#
+    )
         .bind(item_id)
         .fetch_all(pool.get_ref())
         .await;
@@ -199,13 +206,20 @@ pub struct UpdateItem {
 #[patch("/{id}")]
 pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Path<Uuid>, form: web::Json<UpdateItem>) -> impl Responder {
     let id = path.into_inner();
-    // Ambil data sebelum update
-    let before = sqlx::query_as::<_, Item>("SELECT * FROM items WHERE id = $1")
+    // Ambil data sebelum update dengan query eksplisit
+    let before = match sqlx::query_as::<_, Item>(
+        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, created_at FROM items WHERE id = $1"
+    )
         .bind(id)
         .fetch_optional(pool.get_ref())
-        .await
-        .ok()
-        .flatten();
+        .await {
+            Ok(Some(item)) => {
+                println!("[DEBUG] Item sebelum update: ID: {}, photo_url: {:?}", item.id, item.photo_url);
+                Some(item)
+            },
+            Ok(None) => return HttpResponse::NotFound().json(serde_json::json!({"error": "Item not found"})),
+            Err(e) => return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to fetch item: {}", e)}))
+        };
     let q = sqlx::query_as::<_, Item>("UPDATE items SET name = COALESCE($1, name), category_id = COALESCE($2, category_id), quantity = COALESCE($3, quantity), condition_id = COALESCE($4, condition_id), location_id = $5, photo_url = $6, source_id = COALESCE($7, source_id), donor_id = $8, procurement_id = $9, status_id = COALESCE($10, status_id) WHERE id = $11 RETURNING *")
     .bind(form.name.clone())
     .bind(form.category_id)
@@ -222,14 +236,28 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
     .await;
     match q {
         Ok(Some(item)) => {
+            // Debug: Cetak nilai after untuk debugging
+            println!("[DEBUG] Item setelah update: ID: {}, photo_url: {:?}", item.id, item.photo_url);
+            
+            let before_json = before.map(|b| serde_json::to_value(&b).unwrap());
+            let after_json = serde_json::to_value(&item).unwrap();
+            
+            println!("[DEBUG] Before JSON: {:?}", before_json);
+            println!("[DEBUG] After JSON: {:?}", after_json);
+            
             // Insert log
-            let _ = sqlx::query("INSERT INTO item_logs (item_id, action, before, after, by) VALUES ($1, $2, $3, $4, $5)")
+            let log_result = sqlx::query("INSERT INTO item_logs (item_id, action, before, after, by) VALUES ($1, $2, $3, $4, $5)")
                 .bind(item.id)
                 .bind("update")
-                .bind(before.map(|b| serde_json::to_value(&b).unwrap()))
-                .bind(Some(serde_json::to_value(&item).unwrap()))
+                .bind(before_json)
+                .bind(Some(after_json))
                 .bind(uuid::Uuid::parse_str(&claims.sub).ok())
                 .execute(pool.get_ref()).await;
+                
+            if let Err(e) = log_result {
+                println!("[ERROR] Failed to create log: {}", e);
+            }
+            
             HttpResponse::Ok().json(item)
         },
         Ok(None) => HttpResponse::NotFound().json(serde_json::json!({"error": "Item not found"})),

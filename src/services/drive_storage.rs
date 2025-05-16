@@ -962,3 +962,334 @@ pub async fn upload_file_handler(
         },
     }
 }
+
+/// Upload file ke Google Drive dengan data file yang sudah diekstrak
+/// Fungsi ini digunakan oleh update_item_with_image untuk mengupload file
+/// yang sudah diekstrak dari payload multipart
+pub async fn upload_file_with_item_id_field(
+    filename: String,
+    bytes: Vec<u8>,
+    content_type: String,
+    config: web::Data<DriveConfig>,
+    client: web::Data<Arc<Mutex<DriveClient>>>,
+    item_id: uuid::Uuid,
+) -> Result<String, Box<dyn std::error::Error>> {
+    println!("[DEBUG] Uploading file {} ({} bytes) for item {}", filename, bytes.len(), item_id);
+    
+    // Buat nama file unik dengan timestamp dan UUID
+    let uuid = uuid::Uuid::new_v4();
+    let timestamp = chrono::Utc::now().timestamp();
+    let file_ext = Path::new(&filename)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("jpg");
+    
+    let unique_filename = format!("{}-{}.{}", timestamp, uuid, file_ext);
+    println!("[DEBUG] Generated unique filename: {}", unique_filename);
+    
+    // Coba ambil client dari mutex
+    let mut client_guard = client.lock().await;
+    
+    // Buat folder berdasarkan item_id jika belum ada
+    let item_folder_name = format!("{}", item_id);
+    println!("[DEBUG] Looking for or creating folder {}", item_folder_name);
+    
+    // Cari folder berdasarkan nama item_id di root folder
+    let token = match get_access_token(&mut client_guard).await {
+        Ok(t) => t,
+        Err(e) => {
+            println!("[ERROR] Failed to get access token: {}", e);
+            return Err(format!("Failed to get access token: {}", e).into());
+        }
+    };
+    
+    let query = format!("name = '{}' and mimeType = 'application/vnd.google-apps.folder' and '{}' in parents", 
+                       item_folder_name, config.folder_id);
+    println!("[DEBUG] Folder search query: {}", query);
+    
+    // URL encode query parameter secara manual
+    let encoded_query = query.replace(" ", "%20")
+                           .replace("'", "%27")
+                           .replace("=", "%3D")
+                           .replace("(", "%28")
+                           .replace(")", "%29");
+    
+    let search_url = format!("https://www.googleapis.com/drive/v3/files?q={}&fields=files(id,name)", 
+                            encoded_query);
+    
+    let search_response = match client_guard.client.get(&search_url)
+        .bearer_auth(&token)
+        .send()
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+                println!("[ERROR] Failed to send folder search request: {}", e);
+                return Err(format!("Failed to send folder search request: {}", e).into());
+            }
+        };
+    
+    let item_folder_id = if search_response.status().is_success() {
+        let search_result = match search_response.json::<serde_json::Value>().await {
+            Ok(json) => json,
+            Err(e) => {
+                println!("[ERROR] Failed to parse folder search JSON response: {}", e);
+                return Err(format!("Failed to parse folder search JSON response: {}", e).into());
+            }
+        };
+        
+        if let Some(files) = search_result["files"].as_array() {
+            if !files.is_empty() {
+                // Folder sudah ada, gunakan ID yang ada
+                let folder_id = match files[0]["id"].as_str() {
+                    Some(id) => id.to_string(),
+                    None => {
+                        println!("[ERROR] Folder ID not found in response");
+                        return Err("Folder ID not found in response".into());
+                    }
+                };
+                println!("[INFO] Folder for item {} already exists with ID {}", item_id, folder_id);
+                folder_id
+            } else {
+                // Folder belum ada, buat baru
+                println!("[INFO] Folder for item {} does not exist, creating new one", item_id);
+                
+                // Buat metadata folder
+                let folder_metadata = serde_json::json!({
+                    "name": item_folder_name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                    "parents": [config.folder_id]
+                });
+                
+                // Buat folder
+                let create_response = match client_guard.client.post("https://www.googleapis.com/drive/v3/files")
+                    .query(&[("fields", "id")])
+                    .bearer_auth(&token)
+                    .json(&folder_metadata)
+                    .send()
+                    .await {
+                        Ok(resp) => resp,
+                        Err(e) => {
+                            println!("[ERROR] Failed to send folder creation request: {}", e);
+                            return Err(format!("Failed to send folder creation request: {}", e).into());
+                        }
+                    };
+                
+                if !create_response.status().is_success() {
+                    let error_text = match create_response.text().await {
+                        Ok(text) => text,
+                        Err(e) => format!("Could not read error response: {}", e)
+                    };
+                    println!("[ERROR] Failed to create folder: {}", error_text);
+                    return Err(format!("Failed to create folder: {}", error_text).into());
+                }
+                
+                // Parse JSON response untuk mendapatkan folder ID
+                let folder_response = match create_response.json::<serde_json::Value>().await {
+                    Ok(json) => json,
+                    Err(e) => {
+                        println!("[ERROR] Failed to parse folder creation JSON response: {}", e);
+                        return Err(format!("Failed to parse folder creation JSON response: {}", e).into());
+                    }
+                };
+                
+                let new_folder_id = match folder_response["id"].as_str() {
+                    Some(id) => id,
+                    None => {
+                        println!("[ERROR] Could not get folder ID from response: {}", folder_response);
+                        return Err("Failed to get folder ID from response".into());
+                    }
+                };
+                
+                println!("[INFO] Folder successfully created with ID: {}", new_folder_id);
+                
+                // Atur permission agar folder bisa diakses publik
+                let permission = serde_json::json!({
+                    "role": "reader",
+                    "type": "anyone"
+                });
+                
+                println!("[DEBUG] Setting public permission for folder {}", new_folder_id);
+                let perm_response = match client_guard.client.post(&format!("https://www.googleapis.com/drive/v3/files/{}/permissions", new_folder_id))
+                    .bearer_auth(&token)
+                    .json(&permission)
+                    .send()
+                    .await {
+                        Ok(resp) => resp,
+                        Err(e) => {
+                            println!("[ERROR] Failed to send permission request: {}", e);
+                            // Continue even if permission setting fails
+                            println!("[WARN] Continuing despite permission setting failure");
+                            return Ok(new_folder_id.to_string());
+                        }
+                    };
+                
+                if !perm_response.status().is_success() {
+                    let error_text = match perm_response.text().await {
+                        Ok(text) => text,
+                        Err(e) => format!("Could not read error response: {}", e)
+                    };
+                    println!("[WARN] Failed to set permission: {}", error_text);
+                    // Continue even if permission setting fails
+                    println!("[WARN] Continuing despite permission setting failure");
+                } else {
+                    println!("[INFO] Permission successfully set for folder {}", new_folder_id);
+                }
+                
+                new_folder_id.to_string()
+            }
+        } else {
+            return Err("Invalid folder search response".into());
+        }
+    } else {
+        let error_text = match search_response.text().await {
+            Ok(text) => text,
+            Err(e) => format!("Could not read error response: {}", e)
+        };
+        println!("[ERROR] Failed to search for folder: {}", error_text);
+        return Err(format!("Failed to search for folder: {}", error_text).into());
+    };
+    
+    // Upload file ke folder item
+    println!("[DEBUG] Uploading file to item folder {}", item_folder_id);
+    
+    // Prepare file metadata
+    let metadata = serde_json::json!({
+        "name": unique_filename,
+        "parents": [item_folder_id]
+    });
+    
+    // Determine a more specific MIME type based on file extension
+    let mime_type = if content_type == "application/octet-stream" {
+        // Try to determine MIME type from file extension
+        match file_ext.to_lowercase().as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "pdf" => "application/pdf",
+            "doc" | "docx" => "application/msword",
+            "xls" | "xlsx" => "application/vnd.ms-excel",
+            "txt" => "text/plain",
+            _ => "image/jpeg"  // Default to image/jpeg if unknown
+        }
+    } else {
+        &content_type
+    };
+    
+    println!("[DEBUG] Using MIME type: {}", mime_type);
+    
+    // Gunakan pendekatan alternatif untuk upload file
+    // Buat metadata file dengan JSON
+    let metadata_json = serde_json::json!({
+        "name": unique_filename,
+        "parents": [item_folder_id]
+    });
+    
+    // Buat URL untuk upload file
+    let upload_url = format!("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id");
+    
+    // Buat multipart body secara manual
+    let boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW";
+    
+    // Buat body untuk multipart request
+    let mut body = Vec::new();
+    
+    // Tambahkan metadata part
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice("Content-Type: application/json; charset=UTF-8\r\n\r\n".as_bytes());
+    body.extend_from_slice(serde_json::to_string(&metadata_json).unwrap().as_bytes());
+    body.extend_from_slice("\r\n".as_bytes());
+    
+    // Tambahkan file part
+    body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
+    body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", mime_type).as_bytes());
+    body.extend_from_slice(&bytes);
+    body.extend_from_slice("\r\n".as_bytes());
+    
+    // Tutup boundary
+    body.extend_from_slice(format!("--{}--", boundary).as_bytes());
+    
+    println!("[DEBUG] Uploading file with manual multipart request");
+    
+    // Buat request dengan body yang sudah dibuat
+    let upload_response = match client_guard.client.post(&upload_url)
+        .header("Content-Type", format!("multipart/related; boundary={}", boundary))
+        .bearer_auth(&token)
+        .body(body)
+        .send()
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+                println!("[ERROR] Failed to upload file: {}", e);
+                return Err(format!("Failed to upload file: {}", e).into());
+            }
+        };
+    
+    if !upload_response.status().is_success() {
+        let error_text = match upload_response.text().await {
+            Ok(text) => text,
+            Err(e) => format!("Could not read error response: {}", e)
+        };
+        println!("[ERROR] Failed to upload file: {}", error_text);
+        return Err(format!("Failed to upload file: {}", error_text).into());
+    }
+    
+    // Parse response to get file ID
+    let upload_result = match upload_response.json::<serde_json::Value>().await {
+        Ok(json) => json,
+        Err(e) => {
+            println!("[ERROR] Failed to parse upload JSON response: {}", e);
+            return Err(format!("Failed to parse upload JSON response: {}", e).into());
+        }
+    };
+    
+    let file_id = match upload_result["id"].as_str() {
+        Some(id) => id,
+        None => {
+            println!("[ERROR] Could not get file ID from response: {}", upload_result);
+            return Err("Failed to get file ID from response".into());
+        }
+    };
+    
+    println!("[INFO] File successfully uploaded with ID: {}", file_id);
+    
+    // Atur permission file agar dapat diakses publik
+    println!("[DEBUG] Setting public permission for file {}", file_id);
+    let permission = serde_json::json!({
+        "role": "reader",
+        "type": "anyone"
+    });
+    
+    // Atur permission file
+    let perm_response = client_guard.client.post(&format!("https://www.googleapis.com/drive/v3/files/{}/permissions", file_id))
+        .bearer_auth(&token)
+        .json(&permission)
+        .send()
+        .await;
+        
+    // Handle response
+    match perm_response {
+        Ok(resp) => {
+            if !resp.status().is_success() {
+                let error_text = match resp.text().await {
+                    Ok(text) => text,
+                    Err(e) => format!("Could not read error response: {}", e)
+                };
+                println!("[WARN] Failed to set file permission: {}", error_text);
+            } else {
+                println!("[INFO] File permission set successfully");
+            }
+        },
+        Err(e) => {
+            println!("[ERROR] Failed to set file permission: {}", e);
+            println!("[WARN] Continuing despite permission setting failure");
+            // Continue anyway, but URL might not be accessible
+        }
+    };
+    
+    // Kembalikan hanya file ID saja, bukan URL lengkap
+    // Frontend akan memformat URL sesuai kebutuhan melalui fungsi formatPhotoUrl
+    let public_url = file_id.to_string();
+    println!("[DEBUG] File ID (untuk frontend): {}", public_url);
+    
+    Ok(public_url)
+}

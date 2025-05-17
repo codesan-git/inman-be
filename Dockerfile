@@ -10,6 +10,7 @@ RUN cargo build --release
 # Copy source code
 COPY src ./src
 COPY .sqlx ./.sqlx
+ENV SQLX_OFFLINE=true
 RUN touch src/main.rs && \
     cargo build --release
 

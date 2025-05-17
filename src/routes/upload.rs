@@ -140,7 +140,7 @@ pub async fn upload_item_image(
     
     // Ambil data item sebelum update untuk log
     let before_item = match sqlx::query_as::<_, Item>(
-        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, created_at FROM items WHERE id = $1"
+        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, value, created_at FROM items WHERE id = $1"
     )
         .bind(item_id)
         .fetch_optional(pool.get_ref())
@@ -178,6 +178,7 @@ pub async fn upload_item_image(
                 donor_id: None,
                 procurement_id: None,
                 status_id: None,
+                value: None, // Nilai barang (opsional)
             };
             
             let updated_item = sqlx::query_as::<_, Item>(
@@ -253,7 +254,7 @@ pub async fn update_item_with_image(
     
     // Ambil data sebelum update dan pastikan tidak null
     let before = match sqlx::query_as::<_, Item>(
-        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, created_at FROM items WHERE id = $1"
+        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, value, created_at FROM items WHERE id = $1"
     )
         .bind(item_id)
         .fetch_optional(pool.get_ref())
@@ -359,6 +360,7 @@ pub async fn update_item_with_image(
         donor_id: None,
         procurement_id: None,
         status_id: None,
+        value: None, // Nilai barang (opsional)
     };
     
     if let Some(data_json) = item_data_json {

@@ -77,6 +77,7 @@ pub struct Item {
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
     pub status_id: Uuid,
+    pub value: Option<String>, // Nilai barang (opsional)
     pub created_at: DateTime<Utc>,
 }
 
@@ -127,6 +128,7 @@ pub struct NewItem {
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
     pub status_id: Option<Uuid>,
+    pub value: Option<String>, // Nilai barang (opsional)
 }
 
 #[post("")]
@@ -157,7 +159,7 @@ pub async fn create_item(claims: Claims, pool: web::Data<PgPool>, form: web::Jso
     };
     
     let q = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *"
+        "INSERT INTO items (id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, value, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *"
     )
     .bind(id)
     .bind(&form.name)
@@ -170,6 +172,7 @@ pub async fn create_item(claims: Claims, pool: web::Data<PgPool>, form: web::Jso
     .bind(form.donor_id)
     .bind(form.procurement_id)
     .bind(status_id)
+    .bind(&form.value)
     .bind(chrono::Utc::now())
     .fetch_one(pool.get_ref())
     .await;
@@ -201,6 +204,7 @@ pub struct UpdateItem {
     pub donor_id: Option<Uuid>,
     pub procurement_id: Option<Uuid>,
     pub status_id: Option<Uuid>,
+    pub value: Option<String>, // Nilai barang (opsional)
 }
 
 #[patch("/{id}")]
@@ -208,7 +212,7 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
     let id = path.into_inner();
     // Ambil data sebelum update dengan query eksplisit
     let before = match sqlx::query_as::<_, Item>(
-        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, created_at FROM items WHERE id = $1"
+        "SELECT id, name, category_id, quantity, condition_id, location_id, photo_url, source_id, donor_id, procurement_id, status_id, value, created_at FROM items WHERE id = $1"
     )
         .bind(id)
         .fetch_optional(pool.get_ref())
@@ -220,7 +224,7 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
             Ok(None) => return HttpResponse::NotFound().json(serde_json::json!({"error": "Item not found"})),
             Err(e) => return HttpResponse::InternalServerError().json(serde_json::json!({"error": format!("Failed to fetch item: {}", e)}))
         };
-    let q = sqlx::query_as::<_, Item>("UPDATE items SET name = COALESCE($1, name), category_id = COALESCE($2, category_id), quantity = COALESCE($3, quantity), condition_id = COALESCE($4, condition_id), location_id = $5, photo_url = $6, source_id = COALESCE($7, source_id), donor_id = $8, procurement_id = $9, status_id = COALESCE($10, status_id) WHERE id = $11 RETURNING *")
+    let q = sqlx::query_as::<_, Item>("UPDATE items SET name = COALESCE($1, name), category_id = COALESCE($2, category_id), quantity = COALESCE($3, quantity), condition_id = COALESCE($4, condition_id), location_id = $5, photo_url = $6, source_id = COALESCE($7, source_id), donor_id = $8, procurement_id = $9, status_id = COALESCE($10, status_id), value = $11 WHERE id = $12 RETURNING *")
     .bind(form.name.clone())
     .bind(form.category_id)
     .bind(form.quantity)
@@ -231,6 +235,7 @@ pub async fn update_item(claims: Claims, pool: web::Data<PgPool>, path: web::Pat
     .bind(form.donor_id)
     .bind(form.procurement_id)
     .bind(form.status_id)
+    .bind(&form.value)
     .bind(id)
     .fetch_optional(pool.get_ref())
     .await;
